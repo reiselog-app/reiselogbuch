@@ -254,8 +254,7 @@ function render(){
         <div class="month-actions">
           <button class="status" data-s="${st}" data-act="status" data-k="${k}" title="Status weiterschalten">${st==="offen"?"Offen":st==="erfasst"?"Erfasst":"Abgeschickt"}</button>
           <button class="btn small" data-act="copy" data-k="${k}">Kopieren</button>
-          <button class="btn small" data-act="mcsv" data-k="${k}">Excel</button>
-          ${ts.some(t=>t.receipts?.length)?`<button class="btn small" data-act="receipts" data-k="${k}">Belege (${ts.reduce((a,t)=>a+(t.receipts?.length||0),0)})</button>`:""}
+          <button class="btn small" data-act="mpack" data-k="${k}">Export</button>
         </div>
       </div>
       ${ts.map(tripRow).join("")}
@@ -355,6 +354,19 @@ async function shareReceipts(k){
   const Z=await loadZip(),z=new Z();files.forEach(f=>z.file(f.name,f));
   await shareOrDownload(new File([await z.generateAsync({type:"blob"})],`Belege-${k}.zip`,{type:"application/zip"}));
 }
+// Monatspaket: CSV + Ordner mit gleichem Namen für die Beleg-PDFs
+const packName=k=>"Reisekosten "+monthFileName(k,"x").slice(0,-2);
+async function addMonthTo(z,k,prefix){
+  const base=prefix+packName(k);
+  z.file(base+".csv",monthCsv(k));
+  for(const f of await monthFiles(k))z.file(base+"/"+f.name,f);
+}
+async function monthPackage(k){
+  toast("Export wird erstellt …");
+  const Z=await loadZip(),z=new Z();await addMonthTo(z,k,"");
+  const blob=await z.generateAsync({type:"blob"});
+  await shareOrDownload(new File([blob],packName(k)+".zip",{type:"application/zip"}));
+}
 async function backup(){
   toast("Sicherung wird erstellt …");
   const Z=await loadZip(),z=new Z();
@@ -362,14 +374,8 @@ async function backup(){
   z.file("daten.json",JSON.stringify({app:"reiselogbuch",version:2,exportedAt:new Date().toISOString(),trips,months,
     files:files.map(f=>({id:f.id,type:f.type,name:f.name||""}))}));
   files.forEach(f=>{z.file("intern/"+f.id,f.blob);if(f.thumb)z.file("intern/"+f.id+".vorschau.jpg",f.thumb)});
-  // lesbare Kopie der Originale, nach Monat sortiert
-  const used={};
-  trips.forEach(t=>(t.receipts||[]).forEach(r=>{const f=files.find(x=>x.id===r.id);if(!f)return;
-    let n=receiptName(r,t,0),key=t.start.slice(0,7)+"/"+n;if(used[key]){used[key]++;n=receiptName(r,t,used[key])}else used[key]=1;
-    z.file("Belege/"+t.start.slice(0,7)+"/"+n,f.blob)}));
-  // lesbare Abrechnung pro Monat: Text zum Kopieren + Tabelle für Excel
-  [...new Set(trips.filter(t=>t.start).map(t=>t.start.slice(0,7)))].sort().forEach(k=>{
-    z.file("Abrechnungen/"+monthFileName(k,"txt"),monthText(k));z.file("Abrechnungen/"+monthFileName(k,"csv"),monthCsv(k))});
+  // lesbar pro Monat: CSV + Ordner mit den Beleg-PDFs, gleicher Name
+  for(const k of [...new Set(trips.filter(t=>t.start).map(t=>t.start.slice(0,7)))].sort())await addMonthTo(z,k,"Abrechnungen/");
   const blob=await z.generateAsync({type:"blob"});
   const name=`Reiselogbuch-Sicherung-${iso(new Date())}.zip`;
   const ok=await shareOrDownload(new File([blob],name,{type:"application/zip"}));
@@ -597,7 +603,7 @@ document.addEventListener("click",async e=>{
   if(a==="go"||a==="arrive"||a==="home"){b.disabled=true;await logStop({go:"start",arrive:"ziel",home:"ende"}[a]).catch(()=>toast("Konnte nicht speichern"));b.disabled=false}
   if(a==="edit")openSheet(trips.find(t=>t.id===b.dataset.id));
   if(a==="backup")backup().catch(()=>toast("Sicherung fehlgeschlagen"));
-  if(a==="mcsv"){await shareOrDownload(new File([monthCsv(b.dataset.k)],"Reisekosten "+monthFileName(b.dataset.k,"csv"),{type:"text/csv"})).catch(()=>toast("Export fehlgeschlagen"))}
+  if(a==="mpack"){b.disabled=true;await monthPackage(b.dataset.k).catch(()=>toast("Export fehlgeschlagen"));b.disabled=false}
   if(a==="receipts"){b.disabled=true;await shareReceipts(b.dataset.k).catch(()=>toast("Belege konnten nicht exportiert werden"));b.disabled=false}
   if(a==="csv")exportCsv().catch(()=>toast("Export fehlgeschlagen"));
   if(a==="status"){const k=b.dataset.k,cur=months[k]?.status||"offen",nx={offen:"erfasst",erfasst:"abgeschickt",abgeschickt:"offen"}[cur];
