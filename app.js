@@ -508,7 +508,7 @@ function openSheet(t){
     await dbDel("trips",t.id);for(const id of [...orig,...fresh])await dbDel("files",id).catch(()=>{});
     trips=trips.filter(x=>x.id!==t.id);if(meta.activeTrip===t.id)meta.activeTrip=null;await markChanged();close();render();toast("Reise gelöscht")}}
   g("f").addEventListener("submit",async e=>{e.preventDefault();const n=read();
-    if(!n.place){g("f_place").focus();g("f_place").placeholder="Bitte einen Ort eintragen";return}
+    if(!n.place&&n.id!==meta.activeTrip){g("f_place").focus();g("f_place").placeholder="Bitte einen Ort eintragen";return}
     if(busy){toast("Beleg wird noch verarbeitet …");return}
     try{
       await dbPut("trips",n);
@@ -520,12 +520,40 @@ function openSheet(t){
   });
 }
 
+/* ================= Beleg direkt an laufende Reise ================= */
+async function quickAttach(file){
+  const t=trips.find(x=>x.id===meta.activeTrip);if(!t){toast("Keine laufende Reise");return}
+  toast("Beleg wird gespeichert …");
+  const id="f"+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+  const isImg=(file.type||"").startsWith("image/");
+  let blob=file,type=file.type||(/\.pdf$/i.test(file.name)?"application/pdf":"application/octet-stream"),thumb=null;
+  if(isImg){
+    try{thumb=await prepImage(file,900,false)}catch(e){}
+    try{blob=await photoToPdf(file);type="application/pdf"}catch(e){}
+  }
+  try{await dbPut("files",{id,type,name:file.name||"",blob,thumb})}
+  catch(e){toast("Beleg konnte nicht gespeichert werden. Ist der Speicher voll?");return}
+  const r={id,type,ext:extOf(type==="application/pdf"?"":file.name,type),hasThumb:!!thumb,name:file.name||"",kind:"Sonstiges",amount:"",date:""};
+  t.receipts=[...(t.receipts||[]),r];
+  await dbPut("trips",t);await markChanged();render();
+  if(!isImg){toast("Beleg angehängt");return}
+  toast("Beleg angehängt, wird ausgelesen …");
+  try{
+    const x=await ocr(file);
+    const cur=trips.find(y=>y.id===t.id);const rr=cur&&(cur.receipts||[]).find(y=>y.id===id);if(!rr)return;
+    if(x.kind)rr.kind=x.kind;if(x.amount!=null)rr.amount=x.amount;if(x.date)rr.date=x.date;if(x.vendor)rr.vendor=x.vendor;
+    if(rr.kind==="Hotel"){cur.hotelReceipt=true;if(x.breakfasts>0&&!cur.breakfasts)cur.breakfasts=x.breakfasts}
+    await dbPut("trips",cur);await markChanged();render();
+    toast(`Beleg angehängt: ${rr.kind}${rr.amount?" · "+eur(Number(rr.amount)):""}`);
+  }catch(e){toast("Beleg angehängt. Betrag bitte später unter „Bearbeiten“ prüfen.")}
+}
+
 /* ================= Events ================= */
 document.addEventListener("click",async e=>{
   const b=e.target.closest("[data-act]");if(!b)return;
   const a=b.dataset.act;
   if(a==="add")openSheet();
-  if(a==="scan"){const t=trips.find(x=>x.id===meta.activeTrip);if(t){openSheet(t);$("f_cam").click()}}
+  if(a==="scan"){$("quickCam").click()}
   if(a==="go"||a==="arrive"||a==="home"){b.disabled=true;await logStop({go:"start",arrive:"ziel",home:"ende"}[a]).catch(()=>toast("Konnte nicht speichern"));b.disabled=false}
   if(a==="edit")openSheet(trips.find(t=>t.id===b.dataset.id));
   if(a==="backup")backup().catch(()=>toast("Sicherung fehlgeschlagen"));
@@ -540,6 +568,8 @@ document.addEventListener("click",async e=>{
 });
 $("addTop").onclick=()=>openSheet();$("addFab").onclick=()=>openSheet();
 $("yearSel").onchange=e=>{state.year=e.target.value;render()};
+(()=>{const q=document.createElement("input");q.type="file";q.id="quickCam";q.accept="image/*";q.setAttribute("capture","environment");q.hidden=true;document.body.appendChild(q);
+  q.addEventListener("change",async()=>{const fs=[...(q.files||[])];q.value="";for(const f of fs)await quickAttach(f)})})();
 $("restoreInp").addEventListener("change",e=>{const f=e.target.files?.[0];if(f)restore(f);e.target.value=""});
 
 /* ================= Start ================= */
