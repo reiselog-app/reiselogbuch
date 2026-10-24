@@ -188,7 +188,7 @@ function renderLive(){
   const first=t.route?.[0];
   el.innerHTML=`<div class="live-txt"><b><span class="dot"></span>Unterwegs seit ${esc(t.dep)}${t.start!==iso(new Date())?" ("+fmtD(t.start)+")":""}</b>
     <span>${esc(routeText(t)||stopLabel(first||{}))}</span></div>
-    <div class="live-btns"><button class="btn" data-act="arrive">Ziel erreicht</button><button class="btn primary" data-act="home">Zurück zu Hause</button>
+    <div class="live-btns"><button class="btn" data-act="scan">Beleg scannen</button><button class="btn" data-act="arrive">Ziel erreicht</button><button class="btn primary" data-act="home">Zurück zu Hause</button>
     <button class="btn ghost small" data-act="edit" data-id="${t.id}">Bearbeiten</button></div>`;
 }
 
@@ -525,6 +525,7 @@ document.addEventListener("click",async e=>{
   const b=e.target.closest("[data-act]");if(!b)return;
   const a=b.dataset.act;
   if(a==="add")openSheet();
+  if(a==="scan"){const t=trips.find(x=>x.id===meta.activeTrip);if(t){openSheet(t);$("f_cam").click()}}
   if(a==="go"||a==="arrive"||a==="home"){b.disabled=true;await logStop({go:"start",arrive:"ziel",home:"ende"}[a]).catch(()=>toast("Konnte nicht speichern"));b.disabled=false}
   if(a==="edit")openSheet(trips.find(t=>t.id===b.dataset.id));
   if(a==="backup")backup().catch(()=>toast("Sicherung fehlgeschlagen"));
