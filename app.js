@@ -254,6 +254,7 @@ function render(){
         <div class="month-actions">
           <button class="status" data-s="${st}" data-act="status" data-k="${k}" title="Status weiterschalten">${st==="offen"?"Offen":st==="erfasst"?"Erfasst":"Abgeschickt"}</button>
           <button class="btn small" data-act="copy" data-k="${k}">Kopieren</button>
+          <button class="btn small" data-act="mcsv" data-k="${k}">Excel</button>
           ${ts.some(t=>t.receipts?.length)?`<button class="btn small" data-act="receipts" data-k="${k}">Belege (${ts.reduce((a,t)=>a+(t.receipts?.length||0),0)})</button>`:""}
         </div>
       </div>
@@ -366,6 +367,9 @@ async function backup(){
   trips.forEach(t=>(t.receipts||[]).forEach(r=>{const f=files.find(x=>x.id===r.id);if(!f)return;
     let n=receiptName(r,t,0),key=t.start.slice(0,7)+"/"+n;if(used[key]){used[key]++;n=receiptName(r,t,used[key])}else used[key]=1;
     z.file("Belege/"+t.start.slice(0,7)+"/"+n,f.blob)}));
+  // lesbare Abrechnung pro Monat: Text zum Kopieren + Tabelle für Excel
+  [...new Set(trips.filter(t=>t.start).map(t=>t.start.slice(0,7)))].sort().forEach(k=>{
+    z.file("Abrechnungen/"+monthFileName(k,"txt"),monthText(k));z.file("Abrechnungen/"+monthFileName(k,"csv"),monthCsv(k))});
   const blob=await z.generateAsync({type:"blob"});
   const name=`Reiselogbuch-Sicherung-${iso(new Date())}.zip`;
   const ok=await shareOrDownload(new File([blob],name,{type:"application/zip"}));
@@ -396,6 +400,17 @@ async function restore(file){
     await loadAll();host.innerHTML="";render();toast("Sicherung geladen");
   };
 }
+// Monatsdatei für Excel/Numbers (Semikolon, deutsches Zahlenformat)
+function monthCsv(k){
+  const de=n=>Number(n||0).toFixed(2).replace(".",",");
+  const dt=s=>s?fmtD(s)+s.slice(0,4):"";
+  const rows=[["Abschnitt","Abreise","Abfahrt","Rückreise","Ankunft","Ort","Route","Anlass","Verkehrsmittel","km","Reisetage","Nächte","Hotelrechnung","Frühstück gestellt","Mittag/Abend gestellt","Kostenstelle","Anzahl Belege","Belege Summe €","Belege (Datum, Art, Betrag, Aussteller)","Verpflegung ca. €","Notiz"]];
+  trips.filter(t=>t.start?.startsWith(k)).sort((a,b)=>a.start.localeCompare(b.start)).forEach((t,i)=>{const c=calc(t);
+    rows.push([i+1,dt(t.start),t.dep||"",dt(t.end||t.start),t.ret||"",t.place||"",routeText(t),t.purpose||"",TRANSPORT[t.transport]||t.transport,t.km||"",c.days,c.nights,t.hotelReceipt?"ja":"nein",t.breakfasts||0,t.meals||0,t.ks||"",
+      (t.receipts||[]).length,de(rcSum(t.receipts)),(t.receipts||[]).map(r=>[r.date?dt(r.date):"",r.kind||"Beleg",r.amount?de(r.amount)+" €":"",r.vendor||""].filter(Boolean).join(" ")).join(" | "),de(c.vma),t.note||""])});
+  return "\ufeff"+rows.map(r=>r.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(";")).join("\r\n");
+}
+const monthFileName=(k,ext)=>{const [y,m]=k.split("-");return `${k} ${MONTHS[+m-1]} ${y}.${ext}`};
 async function exportCsv(){
   const rows=[["Abreise","Abfahrt","Rückreise","Ankunft","Ort","Anlass","Verkehrsmittel","km","Nächte","Frühstück gestellt","Mahlzeiten gestellt","Kostenstelle","Belege","Belege Summe €","Verpflegung ca. €","Status Monat","Notiz"]];
   trips.filter(t=>t.start?.startsWith(state.year)).sort((a,b)=>a.start.localeCompare(b.start)).forEach(t=>{const c=calc(t);
@@ -582,6 +597,7 @@ document.addEventListener("click",async e=>{
   if(a==="go"||a==="arrive"||a==="home"){b.disabled=true;await logStop({go:"start",arrive:"ziel",home:"ende"}[a]).catch(()=>toast("Konnte nicht speichern"));b.disabled=false}
   if(a==="edit")openSheet(trips.find(t=>t.id===b.dataset.id));
   if(a==="backup")backup().catch(()=>toast("Sicherung fehlgeschlagen"));
+  if(a==="mcsv"){await shareOrDownload(new File([monthCsv(b.dataset.k)],"Reisekosten "+monthFileName(b.dataset.k,"csv"),{type:"text/csv"})).catch(()=>toast("Export fehlgeschlagen"))}
   if(a==="receipts"){b.disabled=true;await shareReceipts(b.dataset.k).catch(()=>toast("Belege konnten nicht exportiert werden"));b.disabled=false}
   if(a==="csv")exportCsv().catch(()=>toast("Export fehlgeschlagen"));
   if(a==="status"){const k=b.dataset.k,cur=months[k]?.status||"offen",nx={offen:"erfasst",erfasst:"abgeschickt",abgeschickt:"offen"}[cur];
