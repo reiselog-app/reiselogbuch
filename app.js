@@ -323,7 +323,7 @@ async function markChanged(){meta.lastChange=Date.now();await saveMeta()}
 const b64=blob=>new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(",")[1]);r.onerror=no;r.readAsDataURL(blob)});
 async function shareOrDownload(file){
   if(navigator.canShare&&navigator.canShare({files:[file]})){
-    try{await navigator.share({files:[file],title:file.name});return true}
+    try{await navigator.share({files:[file]});return true}
     catch(e){if(e&&e.name==="AbortError")return false}
   }
   const a=document.createElement("a");a.href=URL.createObjectURL(file);a.download=file.name;document.body.appendChild(a);a.click();
@@ -350,7 +350,7 @@ async function monthFiles(k){
 async function shareReceipts(k){
   const files=await monthFiles(k);if(!files.length){toast("Keine Belege in diesem Monat");return}
   if(navigator.canShare&&navigator.canShare({files})){
-    try{await navigator.share({files,title:"Belege "+k});return}catch(e){if(e&&e.name==="AbortError")return}
+    try{await navigator.share({files});return}catch(e){if(e&&e.name==="AbortError")return}
   }
   const Z=await loadZip(),z=new Z();files.forEach(f=>z.file(f.name,f));
   await shareOrDownload(new File([await z.generateAsync({type:"blob"})],`Belege-${k}.zip`,{type:"application/zip"}));
