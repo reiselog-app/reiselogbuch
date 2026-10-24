@@ -211,12 +211,12 @@ async function logStop(type){
 function renderLive(){
   const el=$("live"), t=trips.find(x=>x.id===meta.activeTrip);
   if(!t){el.innerHTML=`<div class="live-txt"><b>Dienstreise starten</b><span>Ein Tipp beim Losgehen speichert Uhrzeit und Ort.</span></div>
-    <button class="btn primary" data-act="go">Abfahrt jetzt</button>`;return}
+    <div class="live-btns"><button class="btn ghost small" data-act="inbox">Eingang übernehmen</button><button class="btn primary" data-act="go">Abfahrt jetzt</button></div>`;return}
   const first=t.route?.[0];
   el.innerHTML=`<div class="live-txt"><b><span class="dot"></span>Unterwegs seit ${esc(t.dep)}${t.start!==iso(new Date())?" ("+fmtD(t.start)+")":""}</b>
     <span>${esc(routeText(t)||stopLabel(first||{}))}</span></div>
     <div class="live-btns"><button class="btn" data-act="scan">Beleg scannen</button><button class="btn" data-act="arrive">Ziel erreicht</button><button class="btn primary" data-act="home">Zurück zu Hause</button>
-    <button class="btn ghost small" data-act="edit" data-id="${t.id}">Bearbeiten</button></div>`;
+    <button class="btn ghost small" data-act="edit" data-id="${t.id}">Bearbeiten</button><button class="btn ghost small" data-act="inbox">Eingang übernehmen</button></div>`;
 }
 
 /* ================= Render ================= */
@@ -266,7 +266,7 @@ function render(){
 function tripRow(t){
   const c=calc(t), multi=t.end&&t.end!==t.start;
   const chips=[(t.ks?`<span class="chip ks">${esc(t.ks.split(" ")[0])}</span>`:""),`<span class="chip">${esc(TRANSPORT[t.transport]||t.transport)}${t.transport==="pkw"&&t.km?` · ${esc(t.km)} km`:""}</span>`];
-  if(c.nights) chips.push(`<span class="chip">${c.nights} ${c.nights===1?"Hotelnacht":"Hotelnächte"}${t.hotelReceipt?" · Beleg ✓":""}</span>`);
+  if(c.nights) chips.push(`<span class="chip">${c.nights} ${c.nights===1?"Hotelnacht":"Hotelnächte"}${t.hotelPaid?" · Kostenübernahme":t.hotelReceipt?" · Beleg ✓":""}</span>`);
   if(t.breakfasts>0) chips.push(`<span class="chip">${t.breakfasts}× Frühstück</span>`);
   if(t.receipts?.length) chips.push(`<span class="chip">${t.receipts.length} ${t.receipts.length===1?"Beleg":"Belege"}${rcSum(t.receipts)?" · "+eur(rcSum(t.receipts)):""}</span>`);
   return `<article class="trip">
@@ -293,7 +293,7 @@ function monthText(k){
     out+=`  Ort: ${t.place||"–"}${t.purpose?" · "+t.purpose:""}\n`;
     if(t.route?.length>1) out+=`  Route: ${routeText(t)}\n`;
     out+=`  Verkehrsmittel: ${TRANSPORT[t.transport]||t.transport}${t.transport==="pkw"&&t.km?` (${t.km} km)`:""}\n`;
-    if(c.nights) out+=`  Übernachtung: ${c.nights} Nacht/Nächte, Hotelrechnung liegt vor\n`;
+    if(c.nights) out+=`  Übernachtung: ${c.nights} Nacht/Nächte${t.hotelPaid?", Kostenübernahme durch Arbeitgeber":t.hotelReceipt?", Hotelrechnung liegt vor":""}\n`;
     if(t.breakfasts>0||t.meals>0) out+=`  Gestellte Mahlzeiten: ${t.breakfasts||0}× Frühstück, ${t.meals||0}× Mittag/Abend\n`;
     (t.receipts||[]).forEach(r=>{out+=`  Beleg: ${r.kind||"Beleg"}${r.vendor?" ("+r.vendor+")":""}${r.date?" vom "+fmtD(r.date):""}${r.amount?" · "+eur(Number(r.amount)):""}\n`});
     if(ks.length>1) out+=`  Kostenstelle: ${t.ks}\n`;
@@ -412,7 +412,7 @@ function monthCsv(k){
   const dt=s=>s?fmtD(s)+s.slice(0,4):"";
   const rows=[["Abschnitt","Abreise","Abfahrt","Rückreise","Ankunft","Ort","Route","Anlass","Verkehrsmittel","km","Reisetage","Nächte","Hotelrechnung","Frühstück gestellt","Mittag/Abend gestellt","Kostenstelle","Anzahl Belege","Belege Summe €","Belege (Datum, Art, Betrag, Aussteller)","Verpflegung ca. €","Notiz"]];
   trips.filter(t=>t.start?.startsWith(k)).sort((a,b)=>a.start.localeCompare(b.start)).forEach((t,i)=>{const c=calc(t);
-    rows.push([i+1,dt(t.start),t.dep||"",dt(t.end||t.start),t.ret||"",t.place||"",routeText(t),t.purpose||"",TRANSPORT[t.transport]||t.transport,t.km||"",c.days,c.nights,t.hotelReceipt?"ja":"nein",t.breakfasts||0,t.meals||0,t.ks||"",
+    rows.push([i+1,dt(t.start),t.dep||"",dt(t.end||t.start),t.ret||"",t.place||"",routeText(t),t.purpose||"",TRANSPORT[t.transport]||t.transport,t.km||"",c.days,c.nights,t.hotelPaid?"Kostenübernahme":t.hotelReceipt?"ja":"nein",t.breakfasts||0,t.meals||0,t.ks||"",
       (t.receipts||[]).length,de(rcSum(t.receipts)),(t.receipts||[]).map(r=>[r.date?dt(r.date):"",r.kind||"Beleg",r.amount?de(r.amount)+" €":"",r.vendor||""].filter(Boolean).join(" ")).join(" | "),de(c.vma),t.note||""])});
   return "\ufeff"+rows.map(r=>r.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(";")).join("\r\n");
 }
@@ -460,6 +460,7 @@ function openSheet(t){
       <div class="field"><label for="f_ml">Gestellte Mittag-/Abendessen</label><input type="number" min="0" inputmode="numeric" id="f_ml" value="${t.meals||0}"></div>
     </div>
     <label class="hint" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="f_hr" ${t.hotelReceipt?"checked":""}> Hotelrechnung liegt vor</label>
+    <label class="hint" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="f_hp" ${t.hotelPaid?"checked":""}> Hotel: Kostenübernahme (Firma zahlt direkt)</label>
     <div class="field">
       <div class="rc-head"><span class="field-l">Belege</span>
         <div class="scanbtns">
@@ -541,7 +542,7 @@ function openSheet(t){
   ["f_cam","f_file"].forEach(id=>{const inp=g(id);inp.addEventListener("change",()=>{if(inp.files?.length)addFiles([...inp.files]);inp.value=""})});
   function read(){const st=g("f_start").value;return {...t,receipts:rcs.filter(r=>!r.pending).map(({pending,reading,error,progress,...r})=>r),
     place:g("f_place").value.trim(),purpose:g("f_purpose").value.trim(),start:st,end:g("f_end").value<st?st:g("f_end").value,dep:g("f_dep").value,ret:g("f_ret").value,
-    transport:g("f_tr").value,km:g("f_km").value,breakfasts:+g("f_bf").value||0,meals:+g("f_ml").value||0,hotelReceipt:g("f_hr").checked,note:g("f_note").value.trim(),ks:g("f_ks").value.trim()}}
+    transport:g("f_tr").value,km:g("f_km").value,breakfasts:+g("f_bf").value||0,meals:+g("f_ml").value||0,hotelReceipt:g("f_hr").checked,hotelPaid:g("f_hp").checked,note:g("f_note").value.trim(),ks:g("f_ks").value.trim()}}
   g("f_start").addEventListener("change",()=>{if(g("f_end").value<g("f_start").value)g("f_end").value=g("f_start").value;upd()});
   g("f_here").onclick=async()=>{const b=g("f_here");b.textContent="…";const p=await getPos();const n=p?await placeName(p.lat,p.lon):null;b.textContent="Hier";if(n){g("f_place").value=cityOnly(n)}else toast(p?"Ort nicht gefunden, bitte eintippen":"Standort nicht verfügbar")};
   g("f_tr").addEventListener("change",()=>{g("kmField").hidden=g("f_tr").value!=="pkw"});
@@ -594,12 +595,88 @@ async function quickAttach(file){
   }catch(e){toast("Beleg angehängt. Betrag bitte später unter „Bearbeiten“ prüfen.")}
 }
 
+/* ================= Eingang übernehmen (aus den Kurzbefehlen) ================= */
+// Dateinamen: "2026-10-24 07-12 abfahrt.txt", "2026-10-25 13-45 Tanken.pdf", "2026-10-26 07-35 Hotel.pdf"
+function parseStamp(name){
+  const m=(name||"").match(/(\d{4})-(\d{2})-(\d{2})[ _T](\d{2})[-.:](\d{2})(?:[ _-]+([^.]*))?\.([a-z0-9]+)$/i);
+  if(!m)return null;
+  return {date:`${m[1]}-${m[2]}-${m[3]}`,time:`${m[4]}:${m[5]}`,label:(m[6]||"").trim(),ext:m[7].toLowerCase()};
+}
+function parseEvent(text){
+  if(!/reiselog/i.test(text))return null;
+  const o={};text.split(/\r?\n/).forEach(l=>{const i=l.indexOf("=");if(i>0)o[l.slice(0,i).trim().toLowerCase()]=l.slice(i+1).trim()});
+  const num=v=>{const n=parseFloat(String(v||"").replace(",","."));return isFinite(n)?n:null};
+  const z=(o.zeit||"").match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})/);
+  return {typ:(o.typ||"").toLowerCase(),date:z?z[1]:null,time:z?`${z[2]}:${z[3]}`:null,ort:o.ort||"",lat:num(o.lat),lon:num(o.lon)};
+}
+const stampOf=(d,t)=>d+"T"+(t||"12:00");
+function tripRange(t){return [stampOf(t.start,t.dep||"00:00"),stampOf(t.end||t.start,t.ret||"23:59")]}
+function tripAt(d,t){
+  const s=stampOf(d,t);
+  let hit=trips.find(x=>{const [a,b]=tripRange(x);return s>=a&&(s<=b||x.id===meta.activeTrip)});
+  if(hit)return hit;
+  // sonst die zeitlich nächste Reise innerhalb von 2 Tagen
+  let best=null,bd=Infinity;
+  for(const x of trips){const [a,b]=tripRange(x);const ds=Math.min(Math.abs(new Date(s)-new Date(a)),Math.abs(new Date(s)-new Date(b)));if(ds<bd){bd=ds;best=x}}
+  return bd<=2*864e5?best:null;
+}
+async function importInbox(fileList){
+  const files=[...fileList].map(f=>({f,st:parseStamp(f.name)})).sort((a,b)=>((a.st?stampOf(a.st.date,a.st.time):"")).localeCompare(b.st?stampOf(b.st.date,b.st.time):""));
+  meta.imported=meta.imported||[];
+  const done=new Set(meta.imported);let nEv=0,nRc=0,skip=0,lost=0;const touched=new Set();
+  const save=async t=>{await dbPut("trips",t);touched.add(t.id)};
+  for(const {f,st} of files){
+    const key=f.name+"|"+f.size;if(done.has(key)){skip++;continue}
+    const isTxt=/\.txt$/i.test(f.name)||f.type==="text/plain";
+    if(isTxt){
+      const ev=parseEvent(await f.text());if(!ev||!ev.date){lost++;continue}
+      const stop={type:{abfahrt:"start",rueckkehr:"ende","rückkehr":"ende"}[ev.typ]||"punkt",at:new Date(stampOf(ev.date,ev.time)).toISOString(),label:ev.ort||undefined,...(ev.lat!=null?{lat:ev.lat,lon:ev.lon}:{})};
+      if(ev.typ==="abfahrt"){
+        let t=trips.find(x=>x.start===ev.date&&!(x.ret&&x.end&&x.end<ev.date));
+        if(t){t.dep=ev.time;if(!(t.route||[]).some(s=>s.type==="start"))t.route=[stop,...(t.route||[])];else t.route=(t.route||[]).map(s=>s.type==="start"?stop:s)}
+        else{t={id:"t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),start:ev.date,end:ev.date,dep:ev.time,ret:"",place:"",purpose:"",transport:"bahn",km:"",breakfasts:0,meals:0,hotelReceipt:false,note:"",receipts:[],route:[stop],ks:defaultKS()};trips.push(t);
+          if(!meta.activeTrip)meta.activeTrip=t.id}
+        await save(t);
+      } else {
+        const t=tripAt(ev.date,ev.time);if(!t){lost++;continue}
+        if(ev.typ==="rueckkehr"||ev.typ==="rückkehr"){t.end=ev.date;t.ret=ev.time;t.route=[...(t.route||[]).filter(s=>s.type!=="ende"),stop];if(meta.activeTrip===t.id)meta.activeTrip=null}
+        else if(ev.typ==="kostenuebernahme"||ev.typ==="kostenübernahme"){t.hotelPaid=true;if(stop.lat!=null)t.route=[...(t.route||[]),stop]}
+        else t.route=[...(t.route||[]),stop];
+        await save(t);
+      }
+      nEv++;
+    } else {
+      if(!st){lost++;continue}
+      const t=tripAt(st.date,st.time);if(!t){lost++;continue}
+      const id="f"+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+      const isImg=(f.type||"").startsWith("image/");
+      let blob=f,type=f.type||(/\.pdf$/i.test(f.name)?"application/pdf":"application/octet-stream"),thumb=null;
+      if(isImg){try{thumb=await prepImage(f,900,false)}catch(e){}try{blob=await photoToPdf(f);type="application/pdf"}catch(e){}}
+      await dbPut("files",{id,type,name:f.name,blob,thumb});
+      const kind=KINDS.find(k=>k.toLowerCase()===st.label.toLowerCase())||"";
+      t.receipts=[...(t.receipts||[]),{id,type,ext:extOf(type==="application/pdf"?"":f.name,type),hasThumb:!!thumb,name:f.name,kind,amount:"",date:st.date}];
+      if(kind==="Hotel")t.hotelReceipt=true;
+      await save(t);nRc++;
+    }
+    done.add(key);meta.imported.push(key);
+  }
+  // Ort und Route für betroffene Reisen ergänzen
+  for(const id of touched){const t=trips.find(x=>x.id===id);if(t&&!t.place&&t.ret){t.place=await guessPlace(t);await dbPut("trips",t)}}
+  if(meta.imported.length>2000)meta.imported=meta.imported.slice(-2000);
+  await markChanged();render();
+  const parts=[];if(nEv)parts.push(`${nEv} ${nEv===1?"Ereignis":"Ereignisse"}`);if(nRc)parts.push(`${nRc} ${nRc===1?"Beleg":"Belege"}`);
+  let msg=parts.length?parts.join(" und ")+" übernommen":"Nichts Neues im Eingang";
+  if(skip)msg+=` · ${skip} schon übernommen`;if(lost)msg+=` · ${lost} ohne passende Reise`;
+  toast(msg);
+}
+
 /* ================= Events ================= */
 document.addEventListener("click",async e=>{
   const b=e.target.closest("[data-act]");if(!b)return;
   const a=b.dataset.act;
   if(a==="add")openSheet();
   if(a==="scan"){$("quickCam").click()}
+  if(a==="inbox"){$("inboxInp").click()}
   if(a==="go"||a==="arrive"||a==="home"){b.disabled=true;await logStop({go:"start",arrive:"ziel",home:"ende"}[a]).catch(()=>toast("Konnte nicht speichern"));b.disabled=false}
   if(a==="edit")openSheet(trips.find(t=>t.id===b.dataset.id));
   if(a==="backup")backup().catch(()=>toast("Sicherung fehlgeschlagen"));
@@ -617,6 +694,8 @@ $("addTop").onclick=()=>openSheet();$("addFab").onclick=()=>openSheet();
 $("yearSel").onchange=e=>{state.year=e.target.value;render()};
 (()=>{const q=document.createElement("input");q.type="file";q.id="quickCam";q.accept="image/*";q.setAttribute("capture","environment");q.hidden=true;document.body.appendChild(q);
   q.addEventListener("change",async()=>{const fs=[...(q.files||[])];q.value="";for(const f of fs)await quickAttach(f)})})();
+(()=>{const q=document.createElement("input");q.type="file";q.id="inboxInp";q.multiple=true;q.accept=".txt,.pdf,text/plain,application/pdf,image/*";q.hidden=true;document.body.appendChild(q);
+  q.addEventListener("change",async()=>{const fs=[...(q.files||[])];q.value="";if(fs.length){toast("Eingang wird übernommen …");await importInbox(fs).catch(()=>toast("Übernahme fehlgeschlagen"))}})})();
 $("restoreInp").addEventListener("change",e=>{const f=e.target.files?.[0];if(f)restore(f);e.target.value=""});
 
 /* ================= Start ================= */
