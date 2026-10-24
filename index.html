@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Reise-Logbuch</title>
+<meta name="theme-color" content="#024589">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Reiselog">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="app.css">
+<link rel="preconnect" href="https://cdnjs.cloudflare.com">
+<style>
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark}}
+body{margin:0;-webkit-text-size-adjust:100%}
+[hidden]{display:none!important}
+img{max-width:100%}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <span class="eyebrow">Reisekosten · Monatsabrechnung</span>
+      <h1>Reise-Logbuch</h1>
+    </div>
+    <div class="controls">
+      <select class="year" id="yearSel" aria-label="Jahr"></select>
+      <button class="btn primary addbtn" id="addTop">+ Reise erfassen</button>
+    </div>
+  </header>
+
+  <div id="backupBanner" class="banner" hidden>
+    <div class="txt"><b>Zeit für eine Sicherung</b><span id="backupWhy"></span></div>
+    <button class="btn primary small" data-act="backup">Jetzt sichern</button>
+  </div>
+
+  <section id="live" class="live" aria-label="Unterwegs"></section>
+
+  <section class="summary" aria-label="Jahresübersicht">
+    <div><b id="sDays">0</b><span>Reisetage</span></div>
+    <div><b id="sOpen">0</b><span>Monate noch offen</span></div>
+    <div><b id="sVma">0 €</b><span>Verpflegung (Schätzung)</span></div>
+  </section>
+
+  <main id="list"></main>
+
+  <footer class="tools">
+    <button class="btn small" data-act="backup">Sicherung erstellen</button>
+    <button class="btn small" data-act="csv">Jahr als Excel-Liste</button>
+    <label class="btn small" for="restoreInp">Sicherung laden<input type="file" id="restoreInp" accept=".zip,.json,application/zip,application/json" style="position:absolute;width:1px;height:1px;opacity:0"></label>
+    <span class="meta" id="backupMeta"></span>
+  </footer>
+</div>
+
+<button class="btn primary fab" id="addFab">+ Reise</button>
+<div id="sheetHost"></div>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
