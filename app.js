@@ -268,7 +268,7 @@ function monthText(k){
     out+=`  Verkehrsmittel: ${TRANSPORT[t.transport]||t.transport}${t.transport==="pkw"&&t.km?` (${t.km} km)`:""}\n`;
     if(c.nights) out+=`  Übernachtung: ${c.nights} Nacht/Nächte, Hotelrechnung liegt vor\n`;
     if(t.breakfasts>0||t.meals>0) out+=`  Gestellte Mahlzeiten: ${t.breakfasts||0}× Frühstück, ${t.meals||0}× Mittag/Abend\n`;
-    (t.receipts||[]).forEach(r=>{out+=`  Beleg: ${r.kind||"Sonstiges"}${r.vendor?" ("+r.vendor+")":""}${r.date?" vom "+fmtD(r.date):""}${r.amount?" · "+eur(Number(r.amount)):""}\n`});
+    (t.receipts||[]).forEach(r=>{out+=`  Beleg: ${r.kind||"Beleg"}${r.vendor?" ("+r.vendor+")":""}${r.date?" vom "+fmtD(r.date):""}${r.amount?" · "+eur(Number(r.amount)):""}\n`});
     if(ks.length>1) out+=`  Kostenstelle: ${t.ks}\n`;
   });
   return out;
@@ -373,7 +373,7 @@ async function exportCsv(){
   const rows=[["Abreise","Abfahrt","Rückreise","Ankunft","Ort","Anlass","Verkehrsmittel","km","Nächte","Frühstück gestellt","Mahlzeiten gestellt","Kostenstelle","Belege","Belege Summe €","Verpflegung ca. €","Status Monat","Notiz"]];
   trips.filter(t=>t.start?.startsWith(state.year)).sort((a,b)=>a.start.localeCompare(b.start)).forEach(t=>{const c=calc(t);
     rows.push([fmtD(t.start)+t.start.slice(0,4),t.dep||"",fmtD(t.end||t.start)+(t.end||t.start).slice(0,4),t.ret||"",t.place,t.purpose,TRANSPORT[t.transport]||t.transport,t.km||"",c.nights,t.breakfasts||0,t.meals||0,t.ks,
-      (t.receipts||[]).map(r=>r.kind+(r.amount?" "+String(r.amount).replace(".",","):"")).join(", "),rcSum(t.receipts).toFixed(2).replace(".",","),c.vma.toFixed(2).replace(".",","),months[t.start.slice(0,7)]?.status||"offen",t.note||""])});
+      (t.receipts||[]).map(r=>(r.kind||"Beleg")+(r.amount?" "+String(r.amount).replace(".",","):"")).join(", "),rcSum(t.receipts).toFixed(2).replace(".",","),c.vma.toFixed(2).replace(".",","),months[t.start.slice(0,7)]?.status||"offen",t.note||""])});
   const csv="﻿"+rows.map(r=>r.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(";")).join("\r\n");
   await shareOrDownload(new File([csv],`Reisen-${state.year}.csv`,{type:"text/csv"}));
 }
@@ -441,7 +441,7 @@ function openSheet(t){
       return `<div class="rc">
         <button type="button" class="thumb" data-view="${i}" aria-label="Beleg ansehen" style="border:none;cursor:pointer">${r.pending?"…":isImg&&u?`<img src="${u}" alt="">`:"PDF"}</button>
         <div class="rc-fields">
-          <select class="rc-kind" data-i="${i}" data-k="kind" aria-label="Belegart">${KINDS.map(k=>`<option ${k===r.kind?"selected":""}>${k}</option>`).join("")}</select>
+          <select class="rc-kind" data-i="${i}" data-k="kind" aria-label="Belegart"><option value="" ${r.kind?"":"selected"}>Art wählen …</option>${KINDS.map(k=>`<option ${k===r.kind?"selected":""}>${k}</option>`).join("")}</select>
           <input data-i="${i}" data-k="amount" inputmode="decimal" placeholder="Betrag €" aria-label="Betrag" value="${r.amount!=null&&r.amount!==""?esc(String(r.amount).replace(".",",")):""}">
           <input type="date" data-i="${i}" data-k="date" aria-label="Belegdatum" value="${esc(r.date||"")}">
           <div class="rc-meta ${r.pending||r.reading?"busy":""}">${r.pending?"Wird gespeichert …":r.reading?`Wird ausgelesen … ${r.progress?r.progress+" %":""}`:esc(r.vendor||r.name||"Beleg")}${r.error?" · "+esc(r.error):""}</div>
@@ -461,7 +461,7 @@ function openSheet(t){
   let lastProg=0;
   async function addFiles(files){
     for(const file of files){
-      const tmp={id:"f"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),pending:true,name:file.name,type:file.type,kind:"Sonstiges",amount:"",date:""};
+      const tmp={id:"f"+Date.now().toString(36)+Math.random().toString(36).slice(2,7),pending:true,name:file.name,type:file.type,kind:"",amount:"",date:""};
       rcs.push(tmp);drawRc();busy++;
       try{
         // Fotos werden zum PDF, hochgeladene PDFs bleiben unverändert; Vorschau separat
@@ -478,8 +478,7 @@ function openSheet(t){
           tmp.reading=true;drawRc();
           try{
             const x=await ocr(file,p=>{tmp.progress=p;if(p-lastProg>=20||p===100){lastProg=p;drawRc()}});
-            if(x.kind)tmp.kind=x.kind;if(x.amount!=null)tmp.amount=x.amount;if(x.date)tmp.date=x.date;if(x.vendor)tmp.vendor=x.vendor;
-            if(tmp.kind==="Hotel"){g("f_hr").checked=true;if(x.breakfasts>0&&!(+g("f_bf").value)){g("f_bf").value=x.breakfasts;upd()}}
+            if(x.amount!=null)tmp.amount=x.amount;if(x.date)tmp.date=x.date;if(x.vendor)tmp.vendor=x.vendor;
             if(x.amount==null||!x.date)tmp.error="Nicht alles erkannt, bitte ergänzen";
           }catch(err){tmp.error=navigator.onLine?"Nicht automatisch lesbar, bitte selbst eintragen":"Texterkennung braucht beim ersten Mal Internet"}
           tmp.reading=false;lastProg=0;
@@ -533,7 +532,7 @@ async function quickAttach(file){
   }
   try{await dbPut("files",{id,type,name:file.name||"",blob,thumb})}
   catch(e){toast("Beleg konnte nicht gespeichert werden. Ist der Speicher voll?");return}
-  const r={id,type,ext:extOf(type==="application/pdf"?"":file.name,type),hasThumb:!!thumb,name:file.name||"",kind:"Sonstiges",amount:"",date:""};
+  const r={id,type,ext:extOf(type==="application/pdf"?"":file.name,type),hasThumb:!!thumb,name:file.name||"",kind:"",amount:"",date:""};
   t.receipts=[...(t.receipts||[]),r];
   await dbPut("trips",t);await markChanged();render();
   if(!isImg){toast("Beleg angehängt");return}
@@ -541,10 +540,9 @@ async function quickAttach(file){
   try{
     const x=await ocr(file);
     const cur=trips.find(y=>y.id===t.id);const rr=cur&&(cur.receipts||[]).find(y=>y.id===id);if(!rr)return;
-    if(x.kind)rr.kind=x.kind;if(x.amount!=null)rr.amount=x.amount;if(x.date)rr.date=x.date;if(x.vendor)rr.vendor=x.vendor;
-    if(rr.kind==="Hotel"){cur.hotelReceipt=true;if(x.breakfasts>0&&!cur.breakfasts)cur.breakfasts=x.breakfasts}
+    if(x.amount!=null)rr.amount=x.amount;if(x.date)rr.date=x.date;if(x.vendor)rr.vendor=x.vendor;
     await dbPut("trips",cur);await markChanged();render();
-    toast(`Beleg angehängt: ${rr.kind}${rr.amount?" · "+eur(Number(rr.amount)):""}`);
+    toast(`Beleg angehängt${rr.amount?" · "+eur(Number(rr.amount)):""}`);
   }catch(e){toast("Beleg angehängt. Betrag bitte später unter „Bearbeiten“ prüfen.")}
 }
 
