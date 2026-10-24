@@ -141,10 +141,10 @@ async function ocr(file,onProgress){
 }
 
 /* ================= Standort ================= */
-function getPos(){
+function getPos(maxAge=60000){
   return new Promise(ok=>{
     if(!navigator.geolocation) return ok(null);
-    navigator.geolocation.getCurrentPosition(p=>ok({lat:+p.coords.latitude.toFixed(5),lon:+p.coords.longitude.toFixed(5),acc:Math.round(p.coords.accuracy)}),()=>ok(null),{enableHighAccuracy:true,timeout:15000,maximumAge:60000});
+    navigator.geolocation.getCurrentPosition(p=>ok({lat:+p.coords.latitude.toFixed(5),lon:+p.coords.longitude.toFixed(5),acc:Math.round(p.coords.accuracy)}),()=>ok(null),{enableHighAccuracy:true,timeout:15000,maximumAge:maxAge});
   });
 }
 async function placeName(lat,lon){
@@ -156,14 +156,41 @@ async function placeName(lat,lon){
     return city?(part&&part!==city?`${city}-${part}`:city):(j.name||null);
   }catch(e){return null}
 }
+function distKm(a,b){const R=6371,r=x=>x*Math.PI/180,dl=r(b.lat-a.lat),dn=r(b.lon-a.lon);
+  const h=Math.sin(dl/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+// Reiseziel = Punkt der Route, der am weitesten vom Start entfernt ist
+async function guessPlace(t){
+  const st=(t.route||[]).filter(s=>s.lat!=null);if(st.length<2)return "";
+  const home=st[0];let best=null,bd=-1;
+  for(const s of st.slice(1)){const d=distKm(home,s);if(d>bd){bd=d;best=s}}
+  if(!best||bd<5)return "";
+  if(!best.label)best.label=await placeName(best.lat,best.lon);
+  return best.label?cityOnly(best.label):"";
+}
 const stopLabel=s=>s.label||(s.lat!=null?`${s.lat.toFixed(3)}, ${s.lon.toFixed(3)}`:"Ort unbekannt");
 const cityOnly=s=>(s||"").split("-")[0];
-function routeText(t){return (t.route||[]).map(s=>cityOnly(stopLabel(s))).filter((v,i,a)=>i===0||v!==a[i-1]).join(" → ")}
+function routeText(t){
+  const r=t.route||[];if(!r.length)return "";
+  const parts=[cityOnly(stopLabel(r[0]))];
+  const goals=r.filter(s=>s.type==="ziel").map(s=>cityOnly(stopLabel(s)));
+  if(goals.length)parts.push(...goals);else if(t.place)parts.push(t.place);
+  const end=r.find(s=>s.type==="ende");if(end)parts.push(cityOnly(stopLabel(end)));
+  return parts.filter((v,i,a)=>i===0||v!==a[i-1]).join(" → ");
+}
+// Standort still mitschreiben, solange eine Reise läuft (höchstens alle 20 Minuten)
+let passiveBusy=false;
+async function logPassive(force){
+  const t=trips.find(x=>x.id===meta.activeTrip);if(!t||passiveBusy)return;
+  const last=(t.route||[]).at(-1);if(!force&&last&&Date.now()-new Date(last.at).getTime()<20*60000)return;
+  passiveBusy=true;
+  try{const p=await getPos(0);if(p){t.route=[...(t.route||[]),{type:"punkt",at:new Date().toISOString(),...p}];await dbPut("trips",t)}}
+  finally{passiveBusy=false}
+}
 function hhmm(d){return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
 async function logStop(type){
   const now=new Date();
   toast("Standort wird ermittelt …");
-  const pos=await getPos();
+  const pos=await getPos(0);
   const stop={type,at:now.toISOString(),...(pos||{})};
   if(pos) stop.label=await placeName(pos.lat,pos.lon);
   let t=trips.find(x=>x.id===meta.activeTrip);
@@ -174,7 +201,7 @@ async function logStop(type){
     if(!t){toast("Keine laufende Reise gefunden");return}
     t.route=[...(t.route||[]),stop];
     if(type==="ziel"&&!t.place&&stop.label) t.place=cityOnly(stop.label);
-    if(type==="ende"){t.end=iso(now);t.ret=hhmm(now);meta.activeTrip=null}
+    if(type==="ende"){t.end=iso(now);t.ret=hhmm(now);meta.activeTrip=null;if(!t.place)t.place=await guessPlace(t)}
   }
   await dbPut("trips",t);await markChanged();
   state.year=t.start.slice(0,4);render();
@@ -507,7 +534,6 @@ function openSheet(t){
     await dbDel("trips",t.id);for(const id of [...orig,...fresh])await dbDel("files",id).catch(()=>{});
     trips=trips.filter(x=>x.id!==t.id);if(meta.activeTrip===t.id)meta.activeTrip=null;await markChanged();close();render();toast("Reise gelöscht")}}
   g("f").addEventListener("submit",async e=>{e.preventDefault();const n=read();
-    if(!n.place&&n.id!==meta.activeTrip){g("f_place").focus();g("f_place").placeholder="Bitte einen Ort eintragen";return}
     if(busy){toast("Beleg wird noch verarbeitet …");return}
     try{
       await dbPut("trips",n);
@@ -523,6 +549,7 @@ function openSheet(t){
 async function quickAttach(file){
   const t=trips.find(x=>x.id===meta.activeTrip);if(!t){toast("Keine laufende Reise");return}
   toast("Beleg wird gespeichert …");
+  logPassive(true).catch(()=>{});
   const id="f"+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
   const isImg=(file.type||"").startsWith("image/");
   let blob=file,type=file.type||(/\.pdf$/i.test(file.name)?"application/pdf":"application/octet-stream"),thumb=null;
@@ -576,6 +603,8 @@ $("restoreInp").addEventListener("change",e=>{const f=e.target.files?.[0];if(f)r
   render();
   try{if(navigator.storage?.persist)await navigator.storage.persist()}catch(e){}
   if("serviceWorker" in navigator&&location.protocol==="https:")navigator.serviceWorker.register("sw.js").catch(()=>{});
+  logPassive().catch(()=>{});
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")logPassive().catch(()=>{})});
 })();
 window.__reiselog={calc,parseReceipt,defaultKS};
 })();
